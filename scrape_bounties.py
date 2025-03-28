@@ -1,15 +1,29 @@
 import json
 import time
+import datetime
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import sys
+import os
 
 def scrape_replit_bounties(output_file="replit_bounties.json"):
     """Scrape bounty information from Replit's bounty page and save to a JSON file."""
     print("Starting to scrape Replit bounties...")
+    
+    # Record the scrape start time
+    scrape_start_time = datetime.datetime.now().isoformat()
+    
+    # Load existing bounties if file exists
+    existing_bounties = []
+    if os.path.exists(output_file):
+        try:
+            with open(output_file, "r", encoding="utf-8") as f:
+                existing_bounties = json.load(f)
+        except json.JSONDecodeError:
+            print(f"Error reading {output_file}, treating as empty")
     
     # URL for Replit bounties
     BOUNTIES_URL = "https://replit.com/bounties?order=creationDateDescending"
@@ -51,7 +65,7 @@ def scrape_replit_bounties(output_file="replit_bounties.json"):
         
         if parent_element:
             # Get all bounty card elements (li elements)
-            bounty_elements = parent_element.select("li")
+            bounty_elements = parent_element.select("ul > li")
             
             print(f"Found {len(bounty_elements)} bounties")
             
@@ -69,11 +83,27 @@ def scrape_replit_bounties(output_file="replit_bounties.json"):
                     desc_elem = element.select_one("div > div > span:nth-of-type(2)")
                     description = desc_elem.text.strip() if desc_elem else ""
                     
+                    # Extract time posted - using the specific xpath structure
+                    time_elem = element.select_one("div > div > div > div > span:nth-of-type(2)")
+                    time_posted = time_elem.text.strip() if time_elem else ""
+                    
                     if title or description or amount:
+                        # Check if this is a new bounty
+                        is_new = True
+                        
+                        # Check if it exists in previous bounties
+                        for existing in existing_bounties:
+                            if existing.get("title") == title and existing.get("amount") == amount:
+                                is_new = False
+                                break
+                        
                         bounty_info = {
                             "title": title,
                             "description": description,
-                            "amount": amount
+                            "amount": amount,
+                            "time": time_posted,
+                            "scrape_time": scrape_start_time,
+                            "is_new": is_new
                         }
                         bounties.append(bounty_info)
                         
@@ -108,10 +138,24 @@ def scrape_replit_bounties(output_file="replit_bounties.json"):
                         desc_elem = card.find_element(By.CSS_SELECTOR, "div > div > span:nth-of-type(2)")
                         description = desc_elem.text.strip() if desc_elem else ""
                         
+                        # Extract time posted - using the specific xpath structure
+                        time_elem = card.find_element(By.XPATH, ".//div/div/div[2]/div[1]/span[2]")
+                        time_posted = time_elem.text.strip() if time_elem else ""
+                        
+                        # Check if this is a new bounty
+                        is_new = True
+                        for existing in existing_bounties:
+                            if existing.get("title") == title and existing.get("amount") == amount:
+                                is_new = False
+                                break
+                        
                         bounty_info = {
                             "title": title,
                             "description": description,
-                            "amount": amount
+                            "amount": amount,
+                            "time": time_posted,
+                            "scrape_time": scrape_start_time,
+                            "is_new": is_new
                         }
                         
                         bounties.append(bounty_info)
@@ -128,7 +172,10 @@ def scrape_replit_bounties(output_file="replit_bounties.json"):
             bounties = [{
                 "title": "Unable to scrape bounties",
                 "description": "The current scraping method is not working. The website structure might have changed.",
-                "amount": ""
+                "amount": "",
+                "time": "",
+                "scrape_time": scrape_start_time,
+                "is_new": False
             }]
         
         # Save bounties to a JSON file
@@ -136,7 +183,9 @@ def scrape_replit_bounties(output_file="replit_bounties.json"):
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(bounties, f, indent=4)
         
-        print(f"Successfully scraped {len(bounties)} bounties!")
+        # Count new bounties
+        new_bounties_count = sum(1 for bounty in bounties if bounty.get("is_new", False))
+        print(f"Successfully scraped {len(bounties)} bounties! ({new_bounties_count} new)")
         return True
     except Exception as e:
         print(f"Error with undetected_chromedriver: {e}")
@@ -144,7 +193,10 @@ def scrape_replit_bounties(output_file="replit_bounties.json"):
         error_data = [{
             "title": "Error with undetected_chromedriver",
             "description": f"Error: {str(e)}. Please make sure Chrome is installed on your system.",
-            "amount": ""
+            "amount": "",
+            "time": "",
+            "scrape_time": scrape_start_time,
+            "is_new": False
         }]
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(error_data, f, indent=4)
